@@ -1,6 +1,5 @@
 import logging
 import multiprocessing as mp
-import os
 import struct
 from functools import partial
 
@@ -159,21 +158,21 @@ def build_seq_to_graph(args):
         'mol_graph': g
     }
     idx = '{:08}'.format(idx).encode('ascii')
-    print(idx, datum)
     return (idx, datum)
 
 
 def generate_small_mol_graph_datasets(params):
+    dbname = 'small_mol'
     logging.info(f"Construct intra-view graphs for small molecules in {params.dataset}...")
 
-    SMILES_csv = pd.read_csv(f'data/{params.dataset}/SMILESstrings.csv')
+    SMILES_csv = pd.read_csv(f'data/{params.dataset}/SMILESstrings.csv', header=None)
 
     # todo: fix map_size
     env = lmdb.open(params.small_mol_db_path, map_size=1e9, max_dbs=6)
 
     num_mol = SMILES_csv.shape[0]
 
-    with env.begin(write=True, db=env.open_db('small_mol'.encode())) as txn:
+    with env.begin(write=True, db=env.open_db(dbname.encode())) as txn:
         txn.put('num_graphs'.encode(), num_mol.to_bytes(int.bit_length(num_mol), byteorder='little'))
 
     graph_sizes = []
@@ -181,7 +180,7 @@ def generate_small_mol_graph_datasets(params):
         args_ = zip(range(num_mol), np.array(SMILES_csv).tolist())
         for (idx, datum) in tqdm(p.imap(build_molecule_graph, args_), total=num_mol):
             graph_sizes.append(datum['graph_size'])
-            with env.begin(write=True, db=env.open_db('small_mol'.encode())) as txn:
+            with env.begin(write=True, db=env.open_db(dbname.encode())) as txn:
                 txn.put(idx, serialize(datum))
 
     with env.begin(write=True) as txn:
@@ -193,16 +192,17 @@ def generate_small_mol_graph_datasets(params):
 
 
 def generate_macro_mol_graph_datasets(params):
+    dbname = 'macro_mol'
     logging.info(f"Construct intra-view graphs for macro molecules in {params.dataset}...")
 
-    seq_csv = pd.read_csv(f'data/{params.dataset}/macro_seqs.csv')
+    seq_csv = pd.read_csv(f'data/{params.dataset}/macro_seqs.csv', header=None)
 
     # todo: fix map_size
     env = lmdb.open(params.macro_mol_db_path, map_size=1e9, max_dbs=6)
 
     num_mol = seq_csv.shape[0]
 
-    with env.begin(write=True, db=env.open_db('macro_mol'.encode())) as txn:
+    with env.begin(write=True, db=env.open_db(dbname.encode())) as txn:
         txn.put('num_graphs'.encode(), num_mol.to_bytes(int.bit_length(num_mol), byteorder='little'))
 
     graph_sizes = []
@@ -211,7 +211,7 @@ def generate_macro_mol_graph_datasets(params):
         args_ = zip(range(num_mol), np.array(seq_csv).tolist())
         for (idx, datum) in tqdm(p.imap(build_seq_to_graph, args_), total=num_mol):
             graph_sizes.append(len(datum['seq']))
-            with env.begin(write=True, db=env.open_db('small_mol'.encode())) as txn:
+            with env.begin(write=True, db=env.open_db(dbname.encode())) as txn:
                 txn.put(idx, serialize(datum))
 
     with env.begin(write=True) as txn:

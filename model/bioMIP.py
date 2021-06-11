@@ -1,6 +1,16 @@
+from torch import nn
 
 
-class bioMIP:
+def initialize_BioMIP(params):
+    if params.load_model:
+        return None
+    else:
+        return BioMIP(
+            params
+        )
+
+
+class BioMIP(nn.Module):
     """
     Args:
         --------- intra-view GNN settings --------------------------------
@@ -25,3 +35,23 @@ class bioMIP:
         --------- predictor settings -------------------------------------
 
     """
+    def __init__(self):
+        super().__init__()
+        # Create two sets of intra-GNNs for small- and macro-molecules respectively
+
+        # Create a stack of inter-GNNs
+
+        # Create 2 predictors (intra-only predictor, mixed predictor)
+
+    def forward(self):
+        pass
+        # use the output of intra-GNN to initialize H0 in 0th layer of inter-GNN
+
+        # inter-GNN
+
+        # combine the output features from intra-GNNs and inter-GNNs, and predict
+
+
+
+
+
