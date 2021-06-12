@@ -12,7 +12,7 @@ def train_an_epoch():
     pass
 
 
-def train(model, small_mol_graphs, macro_mol_graphs, inter_graph):
+def train_BioMIP(n_epoch, model, small_mol_graphs, macro_mol_graphs, inter_graph):
     train_an_epoch()
 
 
@@ -33,6 +33,9 @@ if __name__ == '__main__':
     if not os.path.isdir(params.macro_mol_db_path):
         generate_macro_mol_graph_datasets(params)
 
+    # init model and loss
+    model = initialize_BioMIP(params)
+
     # load intra-view graphs
     small_mol_graphs = IntraGraphDataset(db_path=params.small_mol_db_path, db_name='small_mol')
     macro_mol_graphs = IntraGraphDataset(db_path=params.macro_mol_db_path, db_name='macro_mol')
@@ -48,8 +51,6 @@ if __name__ == '__main__':
             'valid': f'data/{params.dataset}/valid.csv'
         })
 
-    inter_graph = ssp_multigraph_to_dgl(adj_list)
-
-    # init model and loss
-    model = initialize_BioMIP(params)
-    train(params.epochs, model, small_mol_graphs, macro_mol_graphs, inter_graph)
+    inter_graph = ssp_multigraph_to_dgl(adj_list, )
+    print(inter_graph)
+    train_BioMIP(params.n_epoch, model, small_mol_graphs, macro_mol_graphs, inter_graph)

@@ -25,7 +25,4 @@ parser.add_argument("--task", type=str, default='ddi', choices=['ddi', 'dta'])
 parser.add_argument("--target", type=str, default='01', choices=['01', '0_1'],
                     help="classification or regression")
 
-parser.add_argument("--load_model", action='store_false',
-                    help='use saved model')
-
 parser.add_argument('--n_epoch', type=int, default=100)
