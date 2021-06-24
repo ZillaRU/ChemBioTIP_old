@@ -10,8 +10,8 @@ from model.inter_gnn.grail_rgcn_layer import RGCNLayer
 class InterView_RGCN(nn.Module):
     def __init__(self, params):
         super(InterView_RGCN, self).__init__()
-        self.inp_dim = 200,  # params.inp_dim
-        self.emb_dim = 200,  # params.emb_dim
+        self.inp_dim = params.inp_dim
+        self.emb_dim = params.emb_dim
         self.attn_rel_emb_dim = 32,  # params.attn_rel_emb_dim
         self.num_rels = 3,  # params.num_rels
         self.aug_num_rels = 3,  # params.aug_num_rels

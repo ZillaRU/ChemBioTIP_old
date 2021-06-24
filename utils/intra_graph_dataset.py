@@ -12,11 +12,18 @@ class IntraGraphDataset(Dataset):
         self.deserialize = deserialize_small if db_name == 'small_mol' else deserialize_macro
         # for key, value in self.main_env.begin(db=self.db).cursor():
         #     print (key, value)
-        self.__getitem__(0)  # test
+        # self.__getitem__('0')  # test
 
-    def __getitem__(self, index):
+    def __getitem__(self, mol_id):
         with self.main_env.begin(db=self.db) as txn:
-            str_id = '{:08}'.format(index).encode('ascii')
-            mol_id, graph_or_seq, size_or_graph = self.deserialize(txn.get(str_id)).values()
+            _id = mol_id.encode('ascii')
+            graph_or_seq, size_or_graph = self.deserialize(txn.get(_id)).values()
         return mol_id, graph_or_seq, size_or_graph
 
+    def get_nfeat_dim(self):
+        with self.main_env.begin(db=self.db) as txn:
+            return int.from_bytes(txn.get('node_feat_dim'.encode('ascii')), byteorder='little')
+
+    def get_efeat_dim(self):
+        with self.main_env.begin(db=self.db) as txn:
+            return int.from_bytes(txn.get('edge_feat_dim'.encode('ascii')), byteorder='little')

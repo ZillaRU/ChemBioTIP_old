@@ -29,6 +29,9 @@ Can be omitted if the graph has only one type of edges.
 
 
 class IntraPredictor(nn.Module):
+    def forward(self, intra_feats, inter_feats):
+        pass
+
     def forward(self, graph, h, etype):
         with graph.local_scope():
             graph.ndata['h'] = h  # 一次性为所有节点类型的 'h'赋值
@@ -37,6 +40,9 @@ class IntraPredictor(nn.Module):
 
 
 class FinalPredictor(nn.Module):
+    def forward(self, intra_feats, inter_feats):
+        pass
+
     def forward(self, graph, h, etype):
         # h是从5.1节中对每种类型的边所计算的节点表示
         with graph.local_scope():

@@ -20,6 +20,7 @@ def pconsc4Prediction(dataset):
     random.shuffle(file_list)
     inputs = []
     outputs = []
+    sudocmd('chmod -R u+r+w '+output_dir)
     for file in file_list:
         input_file = os.path.join(aln_dir, file)
         output_file = os.path.join(output_dir, file.split('.a3m')[0] + '.npy')
@@ -30,6 +31,7 @@ def pconsc4Prediction(dataset):
         try:
             print('process', input_file)
             pred = pconsc4.predict(model, input_file)
+            print(input_file, ' prediction finished')
             np.save(output_file, pred['cmap'], allow_pickle=True)
             print(output_file, 'over.')
         except:

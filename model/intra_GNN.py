@@ -47,10 +47,9 @@ class Intra_AttentiveFP(nn.Module):
         node_feats : float32 tensor of shape (V, graph_feat_size)
             Updated node representations.
         """
-        node_feats = self.init_context(g, node_feats, edge_feats)
-        for gnn in self.gnn_layers:
-            node_feats = gnn(g, node_feats)
-        return node_feats
+        node_feats = self.gnn(g, node_feats, edge_feats)
+        g_feats = self.readout(g, node_feats)
+        return g_feats
 
 
 class Intra_GAT(nn.Module):

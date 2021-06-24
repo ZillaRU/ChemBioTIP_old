@@ -43,7 +43,8 @@ def build_molecule_graph(args_, graph_mode='bigraph', featurizer='base'):
         a graph constructed and featurized or None
         parsed by RDKit
     """
-    idx, (mol_id, smiles) = args_
+    # idx, (mol_id, smiles) = args_
+    mol_id, smiles = args_
     mol = chem.MolFromSmiles(smiles)
     if graph_mode == 'bigraph' and featurizer == 'base':
         g = mol_to_bigraph(mol,
@@ -91,18 +92,27 @@ def build_molecule_graph(args_, graph_mode='bigraph', featurizer='base'):
                            node_featurizer=atom_featurizer,
                            edge_featurizer=bond_featurizer
                            )
+    print(g.node_attr_schemes())
+    n_node, n_edge = g.num_nodes(), g.num_edges()
+    _tp = [torch.tensor(g.ndata[k].view(n_node, -1), dtype=torch.float32) for k in g.node_attr_schemes().keys()]
+    g.ndata['nfeats'] = torch.cat(tuple(_tp), 1)
+
+    _tp = [torch.tensor(g.edata[k].view(n_edge, -1), dtype=torch.float32)  for k in g.edge_attr_schemes().keys()]
+    g.edata['efeats'] = torch.cat(tuple(_tp), 1)
+
     datum = {
-        'mol_id': mol_id,
+        # 'mol_id': mol_id,
         'mol_graph': g,
         'graph_size': g.num_nodes()
     }
-    idx = '{:08}'.format(idx).encode('ascii')
+    # idx = '{:08}'.format(idx).encode('ascii')
+    idx = str(mol_id).encode('ascii')
     return (idx, datum)
 
 
-def init_folder(params, _):
+def init_folder(params):
     global _dataset
-    _dataset = params
+    _dataset = params.dataset
 
 
 def residue_features(residue):
@@ -138,7 +148,9 @@ def macro_mol_to_feature(seq, aln):
 
 def build_seq_to_graph(args):
     # print(os.getcwd())
-    idx, (mol_id, seq) = args
+    # _, (mol_id, seq) = args
+    mol_id, seq = args
+    # idx, (mol_id, seq) = args
     aln_path = f'./data/{_dataset}/macromolecules/aln/{mol_id}.aln'
     cmap_path = f'./data/{_dataset}/macromolecules/pconsc4/{mol_id}.npy'
     macro_mol_edge_index = []
@@ -150,14 +162,15 @@ def build_seq_to_graph(args):
     mol_feature = torch.from_numpy(macro_mol_to_feature(seq, aln_path))
     g = dgl.graph((torch.from_numpy(index_row), torch.from_numpy(index_col)))
     # g = dgl.heterograph((index_row, index_col))
-    g.ndata['hv'] = mol_feature
-    # g.edata['he'] =
+    g.ndata['nfeats'] = torch.tensor(mol_feature, dtype=torch.float32)
+    g.edata['efeats'] = torch.ones([g.num_edges(), 1], dtype=torch.float32)  # todo
     datum = {
-        'mol_id': mol_id,
+        # 'mol_id': mol_id,
         'seq': seq,
         'mol_graph': g
     }
-    idx = '{:08}'.format(idx).encode('ascii')
+    # idx = '{:08}'.format(idx).encode('ascii')
+    idx = mol_id.encode('ascii')
     return (idx, datum)
 
 
@@ -176,15 +189,27 @@ def generate_small_mol_graph_datasets(params):
         txn.put('num_graphs'.encode(), num_mol.to_bytes(int.bit_length(num_mol), byteorder='little'))
 
     graph_sizes = []
+    seq_list = np.array(SMILES_csv).tolist()
+    # get node_feature_dimension and edge_feature_dimension
+    _, g_datum = build_molecule_graph((seq_list[0][0], seq_list[0][1]))
+    temp_g = g_datum['mol_graph']
+    node_feat_dim = temp_g.ndata['nfeats'].shape[1]
+    edge_feat_dim = temp_g.edata['efeats'].shape[1]
+    logging.info(f'node_feat_dim = {node_feat_dim}, edge_feat_dim = {edge_feat_dim}')
+
     with mp.Pool(processes=None) as p:
-        args_ = zip(range(num_mol), np.array(SMILES_csv).tolist())
-        for (idx, datum) in tqdm(p.imap(build_molecule_graph, args_), total=num_mol):
+        for (idx, datum) in tqdm(p.imap(build_molecule_graph, seq_list), total=num_mol):
             graph_sizes.append(datum['graph_size'])
             with env.begin(write=True, db=env.open_db(dbname.encode())) as txn:
                 txn.put(idx, serialize(datum))
 
-    with env.begin(write=True) as txn:
+    with env.begin(write=True, db=env.open_db(dbname.encode())) as txn:
         print('==== ==== ==== ==== ==== ==== ==== Writing ==== ==== ==== ==== ==== ==== ====')
+        # txn.put('node_feat_dim'.encode(), struct.pack('f', float(node_feat_dim)))
+        # txn.put('edge_feat_dim'.encode(), struct.pack('f', float(edge_feat_dim)))
+        bit_len = int.bit_length(node_feat_dim)
+        txn.put('node_feat_dim'.encode(), (int(node_feat_dim)).to_bytes(bit_len, byteorder='little'))
+        txn.put('edge_feat_dim'.encode(), (int(edge_feat_dim)).to_bytes(bit_len, byteorder='little'))
         txn.put('avg_molgraph_size'.encode(), struct.pack('f', float(np.mean(graph_sizes))))
         txn.put('min_molgraph_size'.encode(), struct.pack('f', float(np.min(graph_sizes))))
         txn.put('max_molgraph_size'.encode(), struct.pack('f', float(np.max(graph_sizes))))
@@ -207,15 +232,27 @@ def generate_macro_mol_graph_datasets(params):
 
     graph_sizes = []
 
-    with mp.Pool(processes=None, initializer=init_folder, initargs=(params.dataset, 0)) as p:
-        args_ = zip(range(num_mol), np.array(seq_csv).tolist())
-        for (idx, datum) in tqdm(p.imap(build_seq_to_graph, args_), total=num_mol):
+    seq_list = np.array(seq_csv).tolist()
+    # get node_feature_dimension and edge_feature_dimension
+    init_folder(params)
+    _, g_datum = build_seq_to_graph((seq_list[0][0], seq_list[0][1]))
+    temp_g = g_datum['mol_graph']
+    node_feat_dim = temp_g.ndata['nfeats'].shape[1]
+    edge_feat_dim = temp_g.edata['efeats'].shape[1]
+    logging.info(f'node_feat_dim = {node_feat_dim}, edge_feat_dim = {edge_feat_dim}')
+    # with mp.Pool(processes=None, initializer=init_folder, initargs=(params.dataset,)) as p:
+    with mp.Pool(processes=None) as p:
+        # args_ = zip(range(num_mol), np.array(seq_csv).tolist())
+        for (idx, datum) in tqdm(p.imap(build_seq_to_graph, seq_list), total=num_mol):
             graph_sizes.append(len(datum['seq']))
             with env.begin(write=True, db=env.open_db(dbname.encode())) as txn:
                 txn.put(idx, serialize(datum))
 
-    with env.begin(write=True) as txn:
-        print('==== ==== ==== ==== ==== ==== ==== Writing ==== ==== ==== ==== ==== ==== ====')
+    with env.begin(write=True, db=env.open_db(dbname.encode())) as txn:
+        print('==== ==== ==== ==== ==== ==== Writing ==== ==== ==== ==== ==== ====')
+        bit_len = int.bit_length(node_feat_dim)
+        txn.put('node_feat_dim'.encode(), (int(node_feat_dim)).to_bytes(bit_len, byteorder='little'))
+        txn.put('edge_feat_dim'.encode(), (int(edge_feat_dim)).to_bytes(bit_len, byteorder='little'))
         txn.put('avg_molgraph_size'.encode(), struct.pack('f', float(np.mean(graph_sizes))))
         txn.put('min_molgraph_size'.encode(), struct.pack('f', float(np.min(graph_sizes))))
         txn.put('max_molgraph_size'.encode(), struct.pack('f', float(np.max(graph_sizes))))

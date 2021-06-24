@@ -1,4 +1,5 @@
 # import pickle
+import os
 
 import dgl
 import dill
@@ -6,6 +7,7 @@ import networkx as nx
 import numpy as np
 import pandas as pd
 import torch
+from matplotlib import pyplot as plt
 from scipy.sparse import csc_matrix
 
 
@@ -14,12 +16,29 @@ def serialize(data):
     return dill.dumps(data_tuple)
 
 
+# def deserialize_small(data):
+#     keys = ('mol_id', 'mol_graph', 'graph_size')
+#     return dict(zip(keys, dill.loads(data)))
+
+
 def deserialize_small(data):
-    keys = ('mol_id', 'mol_graph', 'graph_size')
+    keys = ('mol_graph', 'graph_size')
     return dict(zip(keys, dill.loads(data)))
 
 
 def deserialize_macro(data):
+    keys = ('seq', 'mol_graph')
+    dill.loads(data)
+    return dict(zip(keys, dill.loads(data)))
+
+
+# def deserialize_macro(data):
+#     keys = ('mol_id', 'seq', 'mol_graph')
+#     dill.loads(data)
+#     return dict(zip(keys, dill.loa ds(data)))
+
+# todo
+def deserialize_subgraph(data):
     keys = ('mol_id', 'seq', 'mol_graph')
     dill.loads(data)
     return dict(zip(keys, dill.loads(data)))
@@ -33,6 +52,16 @@ def identify_type_drugbank(name: str, _refer):
 
 def identify_type(name: str, _refer):
     pass
+
+
+def plot_rel_dist(adj_list, filename):
+    rel_count = []
+    for adj in adj_list:
+        rel_count.append(adj.count_nonzero())
+
+    fig = plt.figure(figsize=(12, 8))
+    plt.plot(rel_count)
+    fig.savefig(filename, dpi=fig.dpi)
 
 
 # triplet format: (u, rt, v)
@@ -79,40 +108,43 @@ def build_inter_graph_from_links(dataset, files: dict, saved_relation2id: bool =
     id2relation = {v: k for k, v in relation2id.items()}
 
     # Construct the list of adjacency matrix each corresponding to eeach relation. Note that this is constructed only from the train data.
-    adj_list = []
+    adj_list = dict()
     for i in range(len(relation2id)):
         idx = np.argwhere(triplets['train'][:, 2] == i)
-        adj_list.append(csc_matrix(
+        adj_list[id2relation[i]] = csc_matrix(
             (
                 np.ones(len(idx), dtype=np.uint8),
                 (
                     triplets['train'][:, 0][idx].squeeze(1),
                     triplets['train'][:, 1][idx].squeeze(1)
                 )
-            ), shape=(len(entity2id), len(entity2id))))
+            ), shape=(len(entity2id), len(entity2id)))
     return adj_list, triplets, entity2id, relation2id, id2entity, id2relation, id2type
 
 
-def ssp_multigraph_to_dgl(graph, n_feats=None):
+def ssp_multigraph_to_dgl(dataset, graphs, n_feats=None):
     """
     Converting ssp multigraph (i.e. list of adjs) to dgl multigraph.
     """
+    if dataset == 'mini':
+        mini_meta_rel = {
+            'rel3': ('drug', 'rel3', 'drug'),
+            'rel2': ('drug', 'rel2', 'drug'),
+            '-': ('drug', '-', 'drug')
+        }
+        print(graphs)
+        graph_data = {
+            mini_meta_rel[rel]: (list(zip(adj.tocoo().row, adj.tocoo().col)))
+            for (rel, adj) in graphs.items()
+        }
+        g_dgl = dgl.heterograph(graph_data)
+        # if n_feats is not None:
+        #     g_dgl.ndata['drug']['feat'] = torch.tensor(n_feats)
+        return g_dgl
 
-    g_nx = nx.MultiDiGraph()
-    g_nx.add_nodes_from(list(range(graph[0].shape[0])))
-    # Add edges
-    for rel, adj in enumerate(graph):
-        # Convert adjacency matrix to tuples for nx0
-        nx_triplets = []
-        for src, dst in list(zip(adj.tocoo().row, adj.tocoo().col)):
-            nx_triplets.append((src, dst, {'type': rel}))
-        g_nx.add_edges_from(nx_triplets)
 
-    # make dgl graph
-    # g_dgl = dgl.graph(g_nx)
-    # dgl.from_scipy()
-    g_dgl = dgl.from_networkx(g_nx, node_attrs=[], edge_attrs=['type'])
-    # add node features
-    if n_feats is not None:
-        g_dgl.ndata['feat'] = torch.tensor(n_feats)
-    return g_dgl
+def save_to_file(directory, file_name, triplets, id2entity, id2relation):
+    file_path = os.path.join(directory, file_name)
+    with open(file_path, "w") as f:
+        for s, o, r in triplets:
+            f.write('\t'.join([id2entity[s], id2relation[r], id2entity[o]]) + '\n')

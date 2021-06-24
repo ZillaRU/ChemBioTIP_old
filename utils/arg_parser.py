@@ -7,7 +7,7 @@ parser.add_argument("--experiment_name", "-e", type=str, default="default",
 parser.add_argument("--dataset", "-d", type=str,
                     default='mini',
                     help="Dataset string")
-parser.add_argument("--gpu", type=int, default=0,
+parser.add_argument("--gpu", type=int, default=-1,
                     help="Which GPU to use?")
 parser.add_argument('--disable_cuda', action='store_true',
                     help='Disable CUDA')
@@ -19,6 +19,14 @@ parser.add_argument("--valid_file", "-vf", type=str, default="valid",
                     help="Name of file containing validation triplets")
 
 parser.add_argument("--SMILES_featurizer", "-smfeat", type=str, default='base')
+
+parser.add_argument("--intra_out_dim", type=int, default=200,
+                    help="the feature dimension of molecules from intra-view")
+parser.add_argument("--inp_dim", type=int, default=200,
+                    help="the input feature dimension of molecules from inter-view, and it should be consistent with the intra_out_dim")
+
+parser.add_argument("--emb_dim", type=int, default=200,
+                    help="the out feature dimension of molecules from inter-view, and it should be consistent with the inp_dim")
 
 parser.add_argument("--task", type=str, default='ddi', choices=['ddi', 'dta'])
 
