@@ -83,7 +83,8 @@ def PSSM_calculation(aln_file, pro_seq):
 # one ont encoding
 def one_of_k_encoding(x, allowable_set):
     if x not in allowable_set:
-        raise Exception('input {0} not in allowable set{1}:'.format(x, allowable_set))
+        return -1
+        # raise Exception('input {0} not in allowable set{1}:'.format(x, allowable_set))
     return list(map(lambda s: x == s, allowable_set))
 
 

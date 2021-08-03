@@ -1,5 +1,5 @@
 import logging
-import multiprocessing as mp
+import os
 import struct
 from functools import partial
 
@@ -12,14 +12,16 @@ import torch
 from dgllife.utils import mol_to_bigraph, PretrainAtomFeaturizer, PretrainBondFeaturizer, BaseAtomFeaturizer, \
     ConcatFeaturizer, atom_type_one_hot, atom_degree_one_hot, atom_formal_charge, atom_num_radical_electrons, \
     atom_hybridization_one_hot, atom_total_num_H_one_hot, BaseBondFeaturizer, one_hot_encoding, \
-    AttentiveFPAtomFeaturizer, AttentiveFPBondFeaturizer, PAGTNAtomFeaturizer, PAGTNEdgeFeaturizer
-from tqdm import tqdm
+    AttentiveFPAtomFeaturizer, AttentiveFPBondFeaturizer
 
 from utils.data_utils import serialize
 from utils.mol_utils import PSSM_calculation, pro_res_table, pro_res_aliphatic_table, pro_res_polar_neutral_table, \
     pro_res_acidic_charged_table, pro_res_basic_charged_table, pro_res_aromatic_table, res_pkb_table, res_pkx_table, \
     res_hydrophobic_ph7_table, res_pka_table, res_hydrophobic_ph2_table, res_weight_table, res_pl_table, \
     one_of_k_encoding
+
+
+# , PAGTNAtomFeaturizer, PAGTNEdgeFeaturizer
 
 
 def build_molecule_graph(args_, graph_mode='bigraph', featurizer='base'):
@@ -58,12 +60,12 @@ def build_molecule_graph(args_, graph_mode='bigraph', featurizer='base'):
                            node_featurizer=AttentiveFPAtomFeaturizer(atom_data_field='hv'),
                            edge_featurizer=AttentiveFPBondFeaturizer(bond_data_field='he')
                            )
-    elif graph_mode == 'bigraph' and featurizer == 'pagtn':  # PAGTN
-        g = mol_to_bigraph(mol,
-                           add_self_loop=True,
-                           node_featurizer=PAGTNAtomFeaturizer(atom_data_field='hv'),
-                           edge_featurizer=PAGTNEdgeFeaturizer(bond_data_field='he')
-                           )
+    # elif graph_mode == 'bigraph' and featurizer == 'pagtn':  # PAGTN
+    #     g = mol_to_bigraph(mol,
+    #                        add_self_loop=True,
+    #                        node_featurizer=PAGTNAtomFeaturizer(atom_data_field='hv'),
+    #                        edge_featurizer=PAGTNEdgeFeaturizer(bond_data_field='he')
+    #                        )
     else:  # custom
         def chirality(atom):
             try:
@@ -92,12 +94,12 @@ def build_molecule_graph(args_, graph_mode='bigraph', featurizer='base'):
                            node_featurizer=atom_featurizer,
                            edge_featurizer=bond_featurizer
                            )
-    print(g.node_attr_schemes())
+    if g is None: return (-1, -1)
+    # print(g.node_attr_schemes())
     n_node, n_edge = g.num_nodes(), g.num_edges()
-    _tp = [torch.tensor(g.ndata[k].view(n_node, -1), dtype=torch.float32) for k in g.node_attr_schemes().keys()]
+    _tp = [torch.as_tensor(g.ndata[k].view(n_node, -1), dtype=torch.float32) for k in g.node_attr_schemes().keys()]
     g.ndata['nfeats'] = torch.cat(tuple(_tp), 1)
-
-    _tp = [torch.tensor(g.edata[k].view(n_edge, -1), dtype=torch.float32)  for k in g.edge_attr_schemes().keys()]
+    _tp = [torch.as_tensor(g.edata[k].view(n_edge, -1), dtype=torch.float32) for k in g.edge_attr_schemes().keys()]
     g.edata['efeats'] = torch.cat(tuple(_tp), 1)
 
     datum = {
@@ -111,8 +113,8 @@ def build_molecule_graph(args_, graph_mode='bigraph', featurizer='base'):
 
 
 def init_folder(params):
-    global _dataset
-    _dataset = params.dataset
+    global _dataset, _aln_path, _npy_path
+    _dataset, _aln_path, _npy_path = params.dataset, params.aln_path, params.npy_path
 
 
 def residue_features(residue):
@@ -130,7 +132,12 @@ def seq_feature(pro_seq):
     pro_hot = np.zeros((len(pro_seq), len(pro_res_table)))
     pro_property = np.zeros((len(pro_seq), 12))
     for i in range(len(pro_seq)):
-        pro_hot[i,] = one_of_k_encoding(pro_seq[i], pro_res_table)
+        temp = one_of_k_encoding(pro_seq[i], pro_res_table)
+        if temp != -1:
+            pro_hot[i,] = temp
+        else:
+            return None
+        # pro_hot[i,] = one_of_k_encoding_unk(pro_seq[i], pro_res_table)
         pro_property[i,] = residue_features(pro_seq[i])
     return np.concatenate((pro_hot, pro_property), axis=1)
 
@@ -138,28 +145,33 @@ def seq_feature(pro_seq):
 def macro_mol_feature(aln, seq):
     pssm = PSSM_calculation(aln, seq)
     other_feature = seq_feature(seq)
+    if other_feature is None:
+        return None
     return np.concatenate((np.transpose(pssm, (1, 0)), other_feature), axis=1)
 
 
 def macro_mol_to_feature(seq, aln):
     feature = macro_mol_feature(aln, seq)
-    return feature
+    return feature if feature is not None else None
 
 
 def build_seq_to_graph(args):
-    # print(os.getcwd())
-    # _, (mol_id, seq) = args
     mol_id, seq = args
-    # idx, (mol_id, seq) = args
-    aln_path = f'./data/{_dataset}/macromolecules/aln/{mol_id}.aln'
-    cmap_path = f'./data/{_dataset}/macromolecules/pconsc4/{mol_id}.npy'
+    aln_path = f'{_aln_path}/{mol_id}.aln'
+    cmap_path = f'{_npy_path}/{mol_id}.npy'
+    if not os.path.exists(aln_path) or not os.path.exists(cmap_path):
+        print(mol_id, aln_path, cmap_path)
+        return (-1, -1)
     macro_mol_edge_index = []
     contact_map = np.load(cmap_path, allow_pickle=True)
     contact_map += np.matrix(np.eye(contact_map.shape[0]))
     index_row, index_col = np.where(contact_map >= 0.5)
     for i, j in zip(index_row, index_col):
         macro_mol_edge_index.append([i, j])
-    mol_feature = torch.from_numpy(macro_mol_to_feature(seq, aln_path))
+    feat = macro_mol_to_feature(seq, aln_path)
+    if feat is None:
+        return (-1, -1)
+    mol_feature = torch.from_numpy(feat)
     g = dgl.graph((torch.from_numpy(index_row), torch.from_numpy(index_col)))
     # g = dgl.heterograph((index_row, index_col))
     g.ndata['nfeats'] = torch.tensor(mol_feature, dtype=torch.float32)
@@ -197,16 +209,22 @@ def generate_small_mol_graph_datasets(params):
     edge_feat_dim = temp_g.edata['efeats'].shape[1]
     logging.info(f'node_feat_dim = {node_feat_dim}, edge_feat_dim = {edge_feat_dim}')
 
-    with mp.Pool(processes=None) as p:
-        for (idx, datum) in tqdm(p.imap(build_molecule_graph, seq_list), total=num_mol):
-            graph_sizes.append(datum['graph_size'])
-            with env.begin(write=True, db=env.open_db(dbname.encode())) as txn:
-                txn.put(idx, serialize(datum))
+    # with mp.Pool(processes=None) as p:
+    #     for (idx, datum) in tqdm(p.imap(build_molecule_graph, seq_list), total=num_mol):
+    #         graph_sizes.append(datum['graph_size'])
+    #         with env.begin(write=True, db=env.open_db(dbname.encode())) as txn:
+    #             txn.put(idx, serialize(datum))
+    for [_id, _val] in seq_list:
+        idx, datum = build_molecule_graph((_id, _val))
+        if idx == -1:
+            print(_id)
+            continue
+        graph_sizes.append(datum['graph_size'])
+        with env.begin(write=True, db=env.open_db(dbname.encode())) as txn:
+            txn.put(idx, serialize(datum))
 
     with env.begin(write=True, db=env.open_db(dbname.encode())) as txn:
         print('==== ==== ==== ==== ==== ==== ==== Writing ==== ==== ==== ==== ==== ==== ====')
-        # txn.put('node_feat_dim'.encode(), struct.pack('f', float(node_feat_dim)))
-        # txn.put('edge_feat_dim'.encode(), struct.pack('f', float(edge_feat_dim)))
         bit_len = int.bit_length(node_feat_dim)
         txn.put('node_feat_dim'.encode(), (int(node_feat_dim)).to_bytes(bit_len, byteorder='little'))
         txn.put('edge_feat_dim'.encode(), (int(edge_feat_dim)).to_bytes(bit_len, byteorder='little'))
@@ -219,7 +237,6 @@ def generate_small_mol_graph_datasets(params):
 def generate_macro_mol_graph_datasets(params):
     dbname = 'macro_mol'
     logging.info(f"Construct intra-view graphs for macro molecules in {params.dataset}...")
-
     seq_csv = pd.read_csv(f'data/{params.dataset}/macro_seqs.csv', header=None)
 
     # todo: fix map_size
@@ -240,13 +257,20 @@ def generate_macro_mol_graph_datasets(params):
     node_feat_dim = temp_g.ndata['nfeats'].shape[1]
     edge_feat_dim = temp_g.edata['efeats'].shape[1]
     logging.info(f'node_feat_dim = {node_feat_dim}, edge_feat_dim = {edge_feat_dim}')
-    # with mp.Pool(processes=None, initializer=init_folder, initargs=(params.dataset,)) as p:
-    with mp.Pool(processes=None) as p:
-        # args_ = zip(range(num_mol), np.array(seq_csv).tolist())
-        for (idx, datum) in tqdm(p.imap(build_seq_to_graph, seq_list), total=num_mol):
-            graph_sizes.append(len(datum['seq']))
-            with env.begin(write=True, db=env.open_db(dbname.encode())) as txn:
-                txn.put(idx, serialize(datum))
+
+    # with mp.Pool(processes=None) as p:
+    #     for (idx, datum) in tqdm(p.imap(build_seq_to_graph, seq_list), total=num_mol):
+    #         graph_sizes.append(len(datum['seq']))
+    #         with env.begin(write=True, db=env.open_db(dbname.encode())) as txn:
+    #             txn.put(idx, serialize(datum))
+    for [_id, _val] in seq_list:
+        idx, datum = build_seq_to_graph((_id, _val))
+        if idx == -1:
+            print(_id)
+            continue
+        graph_sizes.append(len(datum['seq']))
+        with env.begin(write=True, db=env.open_db(dbname.encode())) as txn:
+            txn.put(idx, serialize(datum))
 
     with env.begin(write=True, db=env.open_db(dbname.encode())) as txn:
         print('==== ==== ==== ==== ==== ==== Writing ==== ==== ==== ==== ==== ====')

@@ -106,8 +106,9 @@ class HGTLayer(nn.Module):
                     new_h[ntype] = trans_out
             return new_h
 
+
 class HGT(nn.Module):
-    def __init__(self, G, node_dict, edge_dict, n_inp, n_hid, n_out, n_layers, n_heads, use_norm = True):
+    def __init__(self, node_dict, edge_dict, n_inp, n_hid, n_out, n_layers, n_heads, use_norm=True):
         super(HGT, self).__init__()
         self.node_dict = node_dict
         self.edge_dict = edge_dict
@@ -116,7 +117,7 @@ class HGT(nn.Module):
         self.n_hid = n_hid
         self.n_out = n_out
         self.n_layers = n_layers
-        self.adapt_ws  = nn.ModuleList()
+        self.adapt_ws = nn.ModuleList()
         for t in range(len(node_dict)):
             self.adapt_ws.append(nn.Linear(n_inp,   n_hid))
         for _ in range(n_layers):
@@ -131,6 +132,7 @@ class HGT(nn.Module):
         for i in range(self.n_layers):
             h = self.gcs[i](G, h)
         return self.out(h[out_key])
+
 
 class HeteroRGCNLayer(nn.Module):
     def __init__(self, in_size, out_size, etypes):

@@ -4,43 +4,56 @@ import torch.nn.functional as F
 
 # reference: GraIL
 from model.inter_gnn import SumAggregator, MLPAggregator, GRUAggregator
-from model.inter_gnn.grail_rgcn_layer import RGCNLayer
+from model.inter_gnn.grail_rgcn_layer import RGCNBasisLayer as RGCNLayer
 
 
 class InterView_RGCN(nn.Module):
-    def __init__(self, params):
+    def __init__(self,
+                 inp_dim,
+                 emb_dim,
+                 attn_rel_emb_dim,
+                 num_rels,
+                 rel2id,
+                 aug_num_rels,
+                 num_bases,
+                 num_gcn_layers,
+                 dropout, edge_dropout,
+                 gnn_agg_type,
+                 has_attn,
+                 device
+                 ):
         super(InterView_RGCN, self).__init__()
-        self.inp_dim = params.inp_dim
-        self.emb_dim = params.emb_dim
-        self.attn_rel_emb_dim = 32,  # params.attn_rel_emb_dim
-        self.num_rels = 3,  # params.num_rels
-        self.aug_num_rels = 3,  # params.aug_num_rels
-        self.num_bases = 4,  # params.num_bases
-        self.num_hidden_layers = 2,  # params.num_gcn_layers
-        self.dropout = 0.,  # params.dropout
-        self.edge_dropout = 0.,  # params.edge_dropout
-        # self.aggregator_type = params.gnn_agg_type
-        self.has_attn = True,  # params.has_attn
-        self.device = torch.device('cpu')  # params.device
-        # print(type(3), type(self.num_rels), type(self.attn_rel_emb_dim))
+        self.layers = nn.ModuleList()
+        self.inp_dim = inp_dim
+        self.emb_dim = emb_dim
+        self.attn_rel_emb_dim = attn_rel_emb_dim
+        self.num_rels = num_rels
+        self.rel2id = rel2id
+        self.aug_num_rels = aug_num_rels
+        self.num_bases = num_bases
+        self.num_hidden_layers = num_gcn_layers
+        self.dropout = dropout
+        self.edge_dropout = edge_dropout
+        self.aggregator_type = gnn_agg_type
+        self.has_attn = has_attn
+        self.device = device
+
         if self.has_attn:
-            # self.attn_rel_emb = nn.Embedding(self.num_rels, self.attn_rel_emb_dim, sparse=False)
-            self.attn_rel_emb = nn.Embedding(3, 32, sparse=False)
+            self.attn_rel_emb = nn.Embedding(self.num_rels, self.attn_rel_emb_dim, sparse=False)
         else:
             self.attn_rel_emb = None
-        # todo: delete
-        params.gnn_agg_type = "sum"
+
         # initialize aggregators for input and hidden layers
-        if params.gnn_agg_type == "sum":
+        if gnn_agg_type == "sum":
             self.aggregator = SumAggregator(self.emb_dim)
-        elif params.gnn_agg_type == "mlp":
+        elif gnn_agg_type == "mlp":
             self.aggregator = MLPAggregator(self.emb_dim)
-        elif params.gnn_agg_type == "gru":
+        elif gnn_agg_type == "gru":
             self.aggregator = GRUAggregator(self.emb_dim)
 
         # initialize basis weights for input and hidden layers
-        # self.input_basis_weights = nn.Parameter(torch.Tensor(self.num_bases, self.inp_dim, self.emb_dim))
-        # self.basis_weights = nn.Parameter(torch.Tensor(self.num_bases, self.emb_dim, self.emb_dim))
+        self.input_basis_weights = nn.Parameter(torch.Tensor(self.num_bases, self.inp_dim, self.emb_dim))
+        self.basis_weights = nn.Parameter(torch.Tensor(self.num_bases, self.emb_dim, self.emb_dim))
 
         # create rgcn layers
         self.build_model()
@@ -48,18 +61,17 @@ class InterView_RGCN(nn.Module):
         # create initial features
         self.features = self.create_features()
 
-    def create_features(self):  # todo: 200 -> self.inp_dim
-        features = torch.arange(200).to(device=self.device)
+    def create_features(self):
+        features = torch.arange(self.inp_dim).to(device=self.device)
         return features
 
     def build_model(self):
-        self.layers = nn.ModuleList()
         # i2h
         i2h = self.build_input_layer()
         if i2h is not None:
             self.layers.append(i2h)
         # h2h
-        for idx in range(2 - 1):  # todo: 2->self.num_hidden_layers
+        for idx in range(self.num_hidden_layers - 1):
             h2h = self.build_hidden_layer(idx)
             self.layers.append(h2h)
 
@@ -68,22 +80,36 @@ class InterView_RGCN(nn.Module):
                          self.emb_dim,
                          # self.input_basis_weights,
                          self.aggregator,
+                         attn_rel_emb_dim=self.attn_rel_emb_dim,
+                         num_rels=self.num_rels,
+                         rel2id=self.rel2id,
+                         device=self.device,
                          activation=F.relu,
                          dropout=self.dropout,
                          edge_dropout=self.edge_dropout,
-                         is_input_layer=True)
+                         is_input_layer=True
+                         )
 
     def build_hidden_layer(self, idx):
         return RGCNLayer(self.emb_dim,
                          self.emb_dim,
                          # self.basis_weights,
                          self.aggregator,
+                         attn_rel_emb_dim=self.attn_rel_emb_dim,
+                         num_rels=self.num_rels,
+                         rel2id=self.rel2id,
+                         device=self.device,
                          activation=F.relu,
                          dropout=self.dropout,
-                         edge_dropout=self.edge_dropout,
+                         edge_dropout=self.edge_dropout
                          )
 
     def forward(self, g):
         for layer in self.layers:
             layer(g, self.attn_rel_emb)
-        return g.ndata.pop('h')
+        return {
+            "drug": g.nodes['drug'].data['repr'],
+            "target": g.nodes['target'].data['repr']
+        }
+        # return g.ndata.pop('h')
+        # return g.ndata['h']
