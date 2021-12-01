@@ -12,3 +12,30 @@
 （3）以对比的方式对齐内层、外层表示，给出某两种药物发生某类型互作用的可能性评分。
 在“仅化学药参与”、“所有药参与”两个场景下真实数据集上的实验证实了本项目组所提出的药物互作用预测框架的有效性。
 研究成果拟投稿VLDB（数据库领域TOP国际会议，CCF A类国际会议）。
+
+# 1. Introduction
+# 2. Preliminaries
+small molecule - SMILES - graph
+macro molecule - AA seq - contact map - graph
+drug
+target
+DDI
+DTI
+TTI
+formulation（只定义输入输出 问题本身 不涉及方法）
+
+# 3. Multi-view graph construction
+definition： intra-view graph
+definition： enhanced inter-view graph
+definition：multi-view graph
+construction
+
+# 4. Graph-based Prediction Model
+# 5. Evaluation
+## 场景1：overall、each type
+## 场景2：overall、each type，biotech drugs
+Parameter Sensitivity：alpha beta gamma #n_layers
+exploring the embedding in ChemBioIP （understanding）：DDI type，drugs（with category labels）
+Ablation Study（graph-construction、concat or ————）
+# 6，Related Works
+# 7. Conclusion
